@@ -6,24 +6,6 @@ It lets you write Lua code with autocompletion, then **test it in the browser** 
 
 > ⚠️ This is an **educational simulation**: it faithfully reproduces the *sandbox* and the execution model of the mod (same environment, same limits and behaviors), but it does not replace a real in-game controller.
 
----
-
-## Running
-
-It is a 100 % static site. Since the Lua code runs in a **Web Worker** (which does not work over `file://`), you need to serve it locally over HTTP.
-
-```bash
-cd ide
-python3 -m http.server 8000
-# or: npx serve   /   npx http-server
-```
-
-Then open **http://localhost:8000** in a modern browser (Chrome, Firefox, Edge).
-
-All dependencies are **vendored in `fengari-web.js`** (the Lua 5.3 interpreter for the browser) — no network access needed once the page is loaded. The editor (CodeMirror) is loaded from a CDN.
-
----
-
 ## Usage
 
 1. **Pick a sample** from the dropdown (or write your own code).
