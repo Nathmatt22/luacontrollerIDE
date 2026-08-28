@@ -26,12 +26,29 @@ let ready = false;
 // --- Simulated state -----------------------------------------------------------
 let mem = {};              // controller persistent memory
 let vports = { a: false, b: false, c: false, d: false }; // outputs driven by the program
-let rports = { a: false, b: false, c: false, d: false }; // inputs (external signals)
+let rports = { a: false, b: false, c: false, d: false }; // inputs (signals from the sources)
 let heat = 0;
 let heatMax = 20;
 let clock = 0;             // simulated clock (seconds)
 let timers = [];           // [{ when, iid }]
 const timersCount = () => timers.length;
+
+// Simulated mesecons components driving the inputs, one per port:
+//   switch | lever -> manual on/off                (sources[p].on)
+//   button         -> 1 s pulse on press           (sources[p].press, latched to pressedAt)
+//   pressure       -> on while occupied            (sources[p].on)
+//   detector       -> on while an object is present (sources[p].on)
+//   solar          -> on during the day            (timeOfDay)
+//   blinky         -> toggles every 3 s            (clock)
+//   hydro          -> on while water is flowing    (sources[p].on)
+//   powerplant     -> always on
+//   torch          -> on by default, extinguishable (sources[p].on, default true)
+let sources = defaultSources();
+let timeOfDay = 12;        // simulated hour 0..24 (drives solar panels)
+const BUTTON_PULSE = 1;    // s, like mesecons_button
+const BLINKY_INTERVAL = 3; // s, like mesecons_blinkyplant
+const SOLAR_START = 6;     // daylight hours (in-game light >= 12)
+const SOLAR_END = 18;
 
 let code = "";             // code currently loaded in the editor
 let eventHooks = [];       // queue of events to submit in the next batch
@@ -48,14 +65,94 @@ function shallowCopy(o) {
 	return r;
 }
 
-function mergePortStates(whole, vports) {
+// ---------------------------------------------------------------------------
+// Signal sources (mesecons components) -> input signals
+// ---------------------------------------------------------------------------
+function defaultSources() {
 	return {
-		a: !!whole.a || !!vports.a,
-		b: !!whole.b || !!vports.b,
-		c: !!whole.c || !!vports.c,
-		d: !!whole.d || !!vports.d,
+		a: { type: "switch", on: false },
+		b: { type: "switch", on: false },
+		c: { type: "switch", on: false },
+		d: { type: "switch", on: false },
 	};
 }
+
+function normalizeSources(incoming) {
+	const out = defaultSources();
+	for (const name of PORT_NAMES) {
+		const s = incoming[name];
+		if (!s || typeof s !== "object") continue;
+		const prev = sources[name] || { type: "switch", on: false };
+		const type = typeof s.type === "string" ? s.type : "switch";
+		// A torch is lit by default; every other source starts unpowered.
+		out[name] = { type, on: type === "torch" ? s.on !== false : !!s.on };
+		if (type === "button") {
+			// A button press is momentary: when the UI bumps the press counter,
+			// latch the press time (the pulse then lasts BUTTON_PULSE seconds).
+			out[name].press = s.press || 0;
+			out[name].pressedAt =
+				s.press && s.press !== prev.press ? clock : (prev.pressedAt || null);
+		}
+	}
+	return out;
+}
+
+function computeSignal(name) {
+	const s = sources[name] || { type: "switch", on: false };
+	switch (s.type) {
+		case "lever":
+		case "switch":
+			return !!s.on;
+		case "button":
+			return s.pressedAt != null && clock - s.pressedAt < BUTTON_PULSE;
+		case "pressure":
+			return !!s.on;
+		case "detector":
+			return !!s.on;
+		case "solar":
+			return timeOfDay >= SOLAR_START && timeOfDay < SOLAR_END;
+		case "blinky":
+			return Math.floor(clock / BLINKY_INTERVAL) % 2 === 1;
+		case "hydro":
+			return !!s.on;
+		case "powerplant":
+			return true;
+		case "torch":
+			return s.on !== false;
+		default:
+			return false;
+	}
+}
+
+function computeAllSignals() {
+	const out = {};
+	for (const name of PORT_NAMES) out[name] = computeSignal(name);
+	return out;
+}
+
+// Returns the on/off events for the ports whose signal differs from rports.
+function diffPortEvents(next) {
+	const events = [];
+	for (const name of PORT_NAMES) {
+		if (next[name] !== !!rports[name]) {
+			events.push({
+				type: next[name] ? "on" : "off",
+				pin: { x: 0, y: 0, z: 0, name: name.toUpperCase() },
+			});
+		}
+	}
+	return events;
+}
+
+// Recompute the input signals from the sources and fire the resulting events.
+function applySourceSignals() {
+	const next = computeAllSignals();
+	const events = diffPortEvents(next);
+	rports = next;
+	for (const ev of events) eventHooks.push(ev);
+	processBatch();
+}
+
 
 // ---------------------------------------------------------------------------
 // State / messages
@@ -77,14 +174,12 @@ self.onmessage = (e) => {
 			eventHooks.length = 0;
 			break;
 
-		case "set_ports":
-			// User toggled an input switch.
-			rports = msg.rports ? msg.rports : rports;
-			break;
-
-		case "fire_rports":
-			// Send an "on"/"off" event on an input port from the switch.
-			queueEvent({ type: msg.state, pin: msg.pin });
+		case "set_world":
+			// The UI updated the mesecons sources wired to the ports and/or the
+			// time of day. Recompute the input signals and fire the on/off events.
+			if (msg.sources) sources = normalizeSources(msg.sources);
+			if (typeof msg.timeOfDay === "number") timeOfDay = msg.timeOfDay;
+			applySourceSignals();
 			break;
 
 		case "step":
@@ -99,6 +194,10 @@ self.onmessage = (e) => {
 				for (const t of due) {
 					eventHooks.push({ type: "interrupt", iid: t.iid });
 				}
+				// Clock-driven sources: blinky plant toggles, button pulses end.
+				const next = computeAllSignals();
+				for (const ev of diffPortEvents(next)) eventHooks.push(ev);
+				rports = next;
 			}, () => {
 				postMessage({ type: "timers", count: timers.length });
 				processBatch();
@@ -113,11 +212,14 @@ self.onmessage = (e) => {
 			mem = {};
 			vports = { a: false, b: false, c: false, d: false };
 			rports = { a: false, b: false, c: false, d: false };
+			sources = defaultSources();
+			timeOfDay = 12;
 			heat = 0;
 			clock = 0;
 			timers = [];
 			eventHooks.length = 0;
 			postMessage({ type: "reset_done" });
+			broadcastState();
 			break;
 
 		default:

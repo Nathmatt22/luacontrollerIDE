@@ -291,6 +291,16 @@ if event.type == "on" or event.type == "off" then
 	local state = (pin.a and pin.b) and "active" or "inactive"
 	print("AND(A="..tostring(pin.a)..", B="..tostring(pin.b)..") : output D " .. state)
 end`,
+	sources: `-- Reacts to the mesecons input sources wired to the ports.
+-- Configure them in the "Signal sources" panel, then advance time with ⏱.
+if event.type == "on" or event.type == "off" then
+	print("Port " .. event.pin.name .. " is now " .. event.type)
+end
+
+if event.type == "program" then
+	print("Sources demo ready.")
+	print("Try: button on A, blinky plant on B, solar panel on C, detector on D.")
+end`,
 	digilines: `-- Exchange on the Digiline channel 'my_channel'
 --
 -- Reception
@@ -326,11 +336,10 @@ const els = {
 	statusText: document.getElementById("statusText"),
 	statusbar: document.getElementById("statusbar"),
 	console: document.getElementById("console"),
-	// ports
-	pinA: document.getElementById("pinA"),
-	pinB: document.getElementById("pinB"),
-	pinC: document.getElementById("pinC"),
-	pinD: document.getElementById("pinD"),
+	// signal sources
+	sourceControls: document.getElementById("sourceControls"),
+	timeSlider: document.getElementById("timeSlider"),
+	timeLabel: document.getElementById("timeLabel"),
 	// digiline
 	digiChan: document.getElementById("digiChan"),
 	digiMsg: document.getElementById("digiMsg"),
@@ -347,9 +356,38 @@ const els = {
 	resetBtn: document.getElementById("resetBtn"),
 };
 
-let rportsUI = { a: false, b: false, c: false, d: false };
 let autoStepHandle = null;
 let outputLEDs = { a: false, b: false, c: false, d: false };
+
+// Simulated mesecons components wired to the controller ports ("Signal sources"
+// panel). `sources` is mirrored to the worker, which is the authority on the
+// actual signals (button pulses, blinky toggles, day/night, ...).
+const SOURCE_TYPES = [
+	{ value: "switch", label: "Switch" },
+	{ value: "lever", label: "Lever" },
+	{ value: "button", label: "Button" },
+	{ value: "pressure", label: "Pressure plate" },
+	{ value: "detector", label: "Object detector" },
+	{ value: "solar", label: "Solar panel" },
+	{ value: "blinky", label: "Blinky plant" },
+	{ value: "hydro", label: "Hydro turbine" },
+	{ value: "powerplant", label: "Power plant" },
+	{ value: "torch", label: "Torch" },
+];
+const PORT_ORDER = ["a", "b", "c", "d"];
+const SOLAR_START = 6;   // daylight hours (matches the worker)
+const SOLAR_END = 18;
+const BLINKY_INTERVAL = 3; // seconds (matches the worker)
+function defaultSources() {
+	return {
+		a: { type: "switch", on: false },
+		b: { type: "switch", on: false },
+		c: { type: "switch", on: false },
+		d: { type: "switch", on: false },
+	};
+}
+let sources = defaultSources();
+let timeOfDay = 12; // simulated hour 0..24, drives solar panels
 
 // ---------------------------------------------------------------------------
 // Console
@@ -377,9 +415,6 @@ function setStatus(msg, cls) {
 // ---------------------------------------------------------------------------
 // Rendering outputs (LEDs) and inputs
 // ---------------------------------------------------------------------------
-const pinRowEl = {
-	a: document.querySelector(".pinline").cloneNode(true),
-};
 function renderOutputs(vports) {
 	outputLEDs = vports;
 	// Target by id (ledA..ledD) and only toggle the "on" class,
@@ -390,33 +425,181 @@ function renderOutputs(vports) {
 		if (led) led.classList.toggle("on", !!vports[p]);
 	}
 }
-function renderInputs(rports) {
-	rportsUI = rports;
-	const map = { a: "#pinA", b: "#pinB", c: "#pinC", d: "#pinD" };
-	for (const p in map) {
-		const cb = document.querySelector(map[p]);
-		if (cb && cb.checked !== !!rports[p]) cb.checked = !!rports[p];
+// The input-signal dots (from the mesecons sources) and the port badge glow.
+function renderSignals(rports) {
+	for (const p of PORT_ORDER) {
+		const row = document.querySelector(`.source-row[data-port="${p}"]`);
+		if (!row) continue;
+		row.classList.toggle("activated", !!rports[p]);
+		const dot = row.querySelector(".src-signal");
+		if (dot) dot.classList.toggle("on", !!rports[p]);
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Port interactions (input switches)
+// Signal sources: mesecons components wired to the ports
 // ---------------------------------------------------------------------------
-function bindPortToggle(name, el) {
-	el.addEventListener("change", () => {
-		rportsUI[name] = el.checked;
-		const state = el.checked ? "on" : "off";
-		// IMPORTANT: update the input state BEFORE sending the event,
-		// otherwise the event is processed with rports still false and the switch
-		// gets unchecked again (inconsistent rendering "jumps").
-		worker.postMessage({ type: "set_ports", rports: rportsUI });
-		worker.postMessage({ type: "queue_event", event: { type: state, pin: { x: 0, y: 0, z: 0, name: name.toUpperCase() } } });
+function sendWorld() {
+	worker.postMessage({
+		type: "set_world",
+		sources: JSON.parse(JSON.stringify(sources)),
+		timeOfDay,
 	});
 }
-bindPortToggle("a", els.pinA);
-bindPortToggle("b", els.pinB);
-bindPortToggle("c", els.pinC);
-bindPortToggle("d", els.pinD);
+
+// Builds the per-port rows (badge, component select, dynamic control, LEDs).
+function buildSourceRows() {
+	for (const name of PORT_ORDER) {
+		const row = document.createElement("div");
+		row.className = "source-row";
+		row.dataset.port = name;
+
+		const head = document.createElement("div");
+		head.className = "src-head";
+
+		const badge = document.createElement("span");
+		badge.className = "pinLabel " + name.toUpperCase();
+		badge.textContent = name.toUpperCase();
+		head.appendChild(badge);
+
+		const sel = document.createElement("select");
+		sel.className = "src-type";
+		for (const t of SOURCE_TYPES) {
+			const opt = document.createElement("option");
+			opt.value = t.value;
+			opt.textContent = t.label;
+			sel.appendChild(opt);
+		}
+		head.appendChild(sel);
+
+		const signal = document.createElement("span");
+		signal.className = "src-signal";
+		signal.title = "Input signal on port " + name.toUpperCase();
+		head.appendChild(signal);
+
+		const outLed = document.createElement("span");
+		outLed.className = "pinState pin" + name.toUpperCase();
+		outLed.id = "led" + name.toUpperCase();
+		outLed.title = "Program output on port " + name.toUpperCase();
+		head.appendChild(outLed);
+
+		row.appendChild(head);
+
+		const ctrl = document.createElement("div");
+		ctrl.className = "src-ctrl";
+		row.appendChild(ctrl);
+
+		sel.addEventListener("change", () => {
+			sources[name].type = sel.value;
+			// A fresh torch is lit; other sources start unpowered.
+			if (sel.value === "torch" && !sources[name].on) sources[name].on = true;
+			renderSourceRow(name);
+			sendWorld();
+		});
+
+		els.sourceControls.appendChild(row);
+		renderSourceRow(name);
+	}
+}
+
+// Renders the control widget for the component selected on a port.
+function renderSourceRow(name) {
+	const row = document.querySelector(`.source-row[data-port="${name}"]`);
+	if (!row) return;
+	const sel = row.querySelector(".src-type");
+	const ctrl = row.querySelector(".src-ctrl");
+	sel.value = sources[name].type;
+	ctrl.innerHTML = "";
+	const s = sources[name];
+
+	const desc = (text) => {
+		const span = document.createElement("span");
+		span.className = "src-desc";
+		span.textContent = text;
+		ctrl.appendChild(span);
+	};
+
+	switch (s.type) {
+		case "switch":
+		case "lever":
+		case "torch": {
+			const label = document.createElement("label");
+			label.className = "switch";
+			label.title = s.type === "switch" ? "Switch (on/off)" : s.type === "lever" ? "Lever (toggle)" : "Torch (lit / extinguished)";
+			const cb = document.createElement("input");
+			cb.type = "checkbox";
+			cb.checked = !!s.on;
+			const slider = document.createElement("span");
+			slider.className = "slider";
+			label.appendChild(cb);
+			label.appendChild(slider);
+			cb.addEventListener("change", () => {
+				sources[name].on = cb.checked;
+				sendWorld();
+			});
+			ctrl.appendChild(label);
+			desc(s.type === "switch" ? "manual on/off" : s.type === "lever" ? "toggle on/off" : "on by default — extinguish");
+			break;
+		}
+		case "button": {
+			const btn = document.createElement("button");
+			btn.className = "src-press";
+			btn.textContent = "Press";
+			btn.title = "Pulse the port for 1 s (advance time with ⏱ to see it release)";
+			btn.addEventListener("click", () => {
+				sources[name].press = (sources[name].press || 0) + 1;
+				sendWorld();
+			});
+			ctrl.appendChild(btn);
+			desc("1 s pulse");
+			break;
+		}
+		case "pressure":
+		case "detector":
+		case "hydro": {
+			const label = document.createElement("label");
+			label.className = "src-check";
+			const cb = document.createElement("input");
+			cb.type = "checkbox";
+			cb.checked = !!s.on;
+			const span = document.createElement("span");
+			span.textContent = s.type === "pressure" ? "Occupied" : s.type === "detector" ? "Object present" : "Water flowing";
+			label.appendChild(cb);
+			label.appendChild(span);
+			cb.addEventListener("change", () => {
+				sources[name].on = cb.checked;
+				sendWorld();
+			});
+			ctrl.appendChild(label);
+			break;
+		}
+		case "solar":
+			desc("automatic — on between 06:00 and 18:00");
+			break;
+		case "blinky":
+			desc("automatic — toggles every 3 s");
+			break;
+		case "powerplant":
+			desc("automatic — always on");
+			break;
+		default:
+			break;
+	}
+}
+
+// Time of day (drives the solar panels)
+function updateTimeLabel() {
+	const h = Math.floor(timeOfDay);
+	const m = Math.round((timeOfDay - h) * 60);
+	const day = timeOfDay >= SOLAR_START && timeOfDay < SOLAR_END;
+	els.timeLabel.textContent =
+		String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0") + (day ? " (day)" : " (night)");
+}
+els.timeSlider.addEventListener("input", () => {
+	timeOfDay = parseFloat(els.timeSlider.value);
+	updateTimeLabel();
+	sendWorld();
+});
 
 // ---------------------------------------------------------------------------
 // Digilines
@@ -462,13 +645,10 @@ function runProgram() {
 	const code = editor.getValue();
 	worker.postMessage({ type: "set_code", code });
 	// "program" event: reload
-	const rportsSnapshot = { ...rportsUI };
 	worker.postMessage({
 		type: "queue_event",
 		event: { type: "program" },
 	});
-	// Force re-render of inputs (in case the program changed them)
-	// not needed; inputs are external.
 	console.log("Program sent");
 	setStatus("Program loaded.", "ok");
 }
@@ -504,9 +684,13 @@ els.autoTimer.addEventListener("change", () => {
 els.resetBtn.addEventListener("click", () => {
 	worker.postMessage({ type: "reset" });
 	clearConsole();
+	sources = defaultSources();
+	timeOfDay = 12;
+	els.timeSlider.value = "12";
+	updateTimeLabel();
+	for (const name of PORT_ORDER) renderSourceRow(name);
+	sendWorld();
 	renderOutputs({ a: false, b: false, c: false, d: false });
-	rportsUI = { a: false, b: false, c: false, d: false };
-	renderInputs(rportsUI);
 	setStatus("Simulation reset.", "");
 });
 // ---------------------------------------------------------------------------
@@ -537,9 +721,24 @@ const LC_DOCS = [
 		title: "Events",
 		entries: [
 			{ term: "\"program\"", code: "event.type == \"program\"", desc: "Fired when the program is loaded or re-run." },
-			{ term: "\"on\" / \"off\"", code: "event.type == \"on\"", desc: "Fired when an input port is switched on/off. event.pin.name is \"A\", \"B\", \"C\" or \"D\"." },
+			{ term: "\"on\" / \"off\"", code: "event.type == \"on\"", desc: "Fired when an input port is switched on/off by its mesecons source. event.pin.name is \"A\", \"B\", \"C\" or \"D\"." },
 			{ term: "\"interrupt\"", code: "event.type == \"interrupt\"", desc: "Fired when a timer scheduled with interrupt(time) expires." },
 			{ term: "\"digiline\"", code: "event.type == \"digiline\"", desc: "Fired when a digiline message is received: event.channel and event.msg are set." },
+		],
+	},
+	{
+		title: "Simulated input sources (mesecons)",
+		entries: [
+			{ term: "Switch / Lever", code: "toggle", desc: "Manual on/off control wired to the port (like mesecons_switch / mesecons_walllever)." },
+			{ term: "Button", code: "1 s pulse", desc: "Momentary pulse: on for 1 second, then off automatically (like mesecons_button). Advance time with ⏱ to see it release." },
+			{ term: "Pressure plate", code: "occupied", desc: "On while \"Occupied\" is checked (like mesecons_pressureplates)." },
+			{ term: "Object detector", code: "object present", desc: "On while \"Object present\" is checked (like the mesecons object detector)." },
+			{ term: "Solar panel", code: "06:00–18:00", desc: "On while the time of day is between 06:00 and 18:00 (like mesecons_solarpanel, light ≥ 12 in-game)." },
+			{ term: "Blinky plant", code: "3 s toggle", desc: "Toggles on/off every 3 seconds automatically (like mesecons_blinkyplant)." },
+			{ term: "Hydro turbine", code: "water flowing", desc: "On while \"Water flowing\" is checked (like mesecons_hydroturbine)." },
+			{ term: "Power plant", code: "always on", desc: "A constant generator: always on (like mesecons_powerplant)." },
+			{ term: "Torch", code: "lit by default", desc: "On by default, like a placed torch (mesecons_torch); toggle it to extinguish/relight." },
+			{ term: "Time of day", code: "0–24 h", desc: "Slider that sets the simulated hour; it drives the solar panels. Default 12:00 (day)." },
 		],
 	},
 	{
@@ -636,7 +835,7 @@ worker.onmessage = (e) => {
 			break;
 
 		case "state":
-			renderInputs(msg.rports || rportsUI);
+			renderSignals(msg.rports || {});
 			renderOutputs(msg.vports);
 			els.timersCount.textContent = msg.timers;
 			els.heatVal.textContent = msg.heat;
@@ -696,5 +895,7 @@ window.addEventListener("load", () => {
 	// print a help message
 	writeConsole("Luacontroller IDE ready.", "sys");
 	setStatus("Ready: write (or pick a sample), then click ▶ Run.", "");
+	buildSourceRows();
+	updateTimeLabel();
 	worker.postMessage({ type: "init" });
 });

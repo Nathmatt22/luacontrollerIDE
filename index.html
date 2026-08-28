@@ -20,6 +20,7 @@
 			<option value="counter">Pulse counter (mem)</option>
 			<option value="gate">Logic AND gate</option>
 			<option value="digiline">Digiline send/receive</option>
+			<option value="sources">Mesecons sources demo</option>
 		</select>
 		<button id="docsBtn" title="API documentation">?</button>
 		<button id="runBtn">▶ Run</button>
@@ -36,26 +37,21 @@
 
 	<aside id="sidePane">
 		<fieldset>
-			<legend>Ports</legend>
-			<div id="pinControls">
-				<label class="pinline"><span class="pinLabel A">A</span>
-					<label class="switch"><input type="checkbox" id="pinA"><span class="slider on"></span></label>
-					<span class="pinState pinA" id="ledA"></span>
-				</label>
-				<label class="pinline"><span class="pinLabel B">B</span>
-					<label class="switch"><input type="checkbox" id="pinB"><span class="slider on"></span></label>
-					<span class="pinState pinB" id="ledB"></span>
-				</label>
-				<label class="pinline"><span class="pinLabel C">C</span>
-					<label class="switch"><input type="checkbox" id="pinC"><span class="slider on"></span></label>
-					<span class="pinState pinC" id="ledC"></span>
-				</label>
-				<label class="pinline"><span class="pinLabel D">D</span>
-					<label class="switch"><input type="checkbox" id="pinD"><span class="slider on"></span></label>
-					<span class="pinState pinD" id="ledD"></span>
-				</label>
+			<legend>Signal sources (mesecons inputs)</legend>
+			<div id="sourceControls"></div>
+			<div id="timeRow">
+				<span class="time-label">Time of day</span>
+				<input type="range" id="timeSlider" min="0" max="24" step="0.5" value="12">
+				<span id="timeLabel">12:00 (day)</span>
 			</div>
-			<p class="hint">The switches simulate incoming signals. The program's outputs are shown on the right.</p>
+			<p class="hint">
+				Each port is driven by a <strong>mesecons component</strong> of your choice:
+				switch, lever, button, pressure plate, object detector, solar panel,
+				blinky plant, hydro turbine, power plant or torch. Automatic components
+				follow the simulated time — advance it with <strong>⏱ Advance timers</strong>
+				(or enable auto-advance). Outputs driven by the program are the green
+				LEDs on the right.
+			</p>
 		</fieldset>
 
 		<fieldset>

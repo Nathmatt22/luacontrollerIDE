@@ -101,14 +101,54 @@ legend {
 .hint { font-size: 11.5px; color: var(--muted); margin: 8px 0 0; }
 .hint code { font-size: 11px; }
 
-/* Port controls */
-#pinControls { display: flex; flex-direction: column; gap: 8px; }
-.pinline {
+/* Ports / signal sources */
+#sourceControls { display: flex; flex-direction: column; gap: 10px; }
+.source-row {
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	padding: 8px 10px;
+	background: var(--panel);
+}
+.src-head { display: flex; align-items: center; gap: 8px; }
+.src-head .src-type { flex: 1; min-width: 0; }
+.src-signal {
+	width: 12px; height: 12px; border-radius: 3px;
+	border: 2px solid var(--border);
+	background: transparent;
+	transition: all .15s;
+	flex: none;
+}
+.src-signal.on {
+	background: var(--accent);
+	border-color: var(--accent);
+	box-shadow: 0 0 6px var(--accent);
+}
+.src-ctrl {
+	margin-top: 8px;
 	display: flex;
 	align-items: center;
-	gap: 10px;
-	font-size: 14px;
+	gap: 8px;
+	min-height: 26px;
 }
+.src-desc, .src-auto { font-size: 12px; color: var(--muted); }
+.src-check {
+	display: inline-flex; align-items: center; gap: 6px;
+	font-size: 13px; cursor: pointer;
+}
+.src-check input { width: 15px; height: 15px; accent-color: var(--green); }
+.src-press { padding: 4px 16px; font-weight: 600; }
+#timeRow {
+	display: flex; align-items: center; gap: 8px;
+	margin-top: 10px; font-size: 13px;
+}
+#timeRow .time-label { color: var(--muted); white-space: nowrap; }
+#timeSlider { flex: 1; accent-color: var(--accent); }
+#timeLabel {
+	font-family: ui-monospace, monospace;
+	font-size: 12px; color: var(--accent);
+	white-space: nowrap;
+}
+
 .pinLabel {
 	width: 22px; height: 22px;
 	display: inline-flex; align-items: center; justify-content: center;
@@ -117,17 +157,18 @@ legend {
 	background: var(--panel);
 	border: 1px solid var(--border);
 	transition: all .15s;
+	flex: none;
 }
 .pinLabel.A { color: var(--red); }
 .pinLabel.B { color: var(--orange); }
 .pinLabel.C { color: var(--green); }
 .pinLabel.D { color: var(--accent); }
-.pinline.activated .pinLabel { border-color: currentColor; box-shadow: 0 0 8px currentColor; }
+.source-row.activated .pinLabel { border-color: currentColor; box-shadow: 0 0 8px currentColor; }
 .pinState {
 	width: 14px; height: 14px; border-radius: 50%;
 	border: 2px solid var(--border);
-	margin-left: auto;
 	transition: all .15s;
+	flex: none;
 }
 .pinState.on {
 	background: var(--green);
