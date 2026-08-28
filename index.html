@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Luacontroller IDE</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/theme/monokai.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/hint/show-hint.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+	<h1>Luacontroller IDE</h1>
+	<span class="tagline">Editor + simulation for the <code>mesecons_luacontroller</code> mod</span>
+	<div class="header-actions">
+		<select id="sampleSelect" title="Sample programs">
+			<option value="">— Sample programs —</option>
+			<option value="blink">Blinker with interrupt</option>
+			<option value="counter">Pulse counter (mem)</option>
+			<option value="gate">Logic AND gate</option>
+			<option value="digiline">Digiline send/receive</option>
+		</select>
+		<button id="docsBtn" title="API documentation">?</button>
+		<button id="runBtn">▶ Run</button>
+	</div>
+</header>
+
+<main>
+	<section id="editorPane">
+		<div id="cmWrap"><textarea id="code"></textarea></div>
+		<div id="statusbar">
+			<span id="statusText">Ready.</span>
+		</div>
+	</section>
+
+	<aside id="sidePane">
+		<fieldset>
+			<legend>Ports</legend>
+			<div id="pinControls">
+				<label class="pinline"><span class="pinLabel A">A</span>
+					<label class="switch"><input type="checkbox" id="pinA"><span class="slider on"></span></label>
+					<span class="pinState pinA" id="ledA"></span>
+				</label>
+				<label class="pinline"><span class="pinLabel B">B</span>
+					<label class="switch"><input type="checkbox" id="pinB"><span class="slider on"></span></label>
+					<span class="pinState pinB" id="ledB"></span>
+				</label>
+				<label class="pinline"><span class="pinLabel C">C</span>
+					<label class="switch"><input type="checkbox" id="pinC"><span class="slider on"></span></label>
+					<span class="pinState pinC" id="ledC"></span>
+				</label>
+				<label class="pinline"><span class="pinLabel D">D</span>
+					<label class="switch"><input type="checkbox" id="pinD"><span class="slider on"></span></label>
+					<span class="pinState pinD" id="ledD"></span>
+				</label>
+			</div>
+			<p class="hint">The switches simulate incoming signals. The program's outputs are shown on the right.</p>
+		</fieldset>
+
+		<fieldset>
+			<legend>Digilines</legend>
+			<div id="digichannel">
+				<label>Send channel: </label>
+				<input id="digiChan" type="text" value="my_channel">
+			</div>
+			<div id="digimuBox">
+				<input id="digiMsg" type="text" value="&quot;hello&quot;" placeholder='msg (JSON, e.g. "hello" or {"n":1})'>
+				<button id="digiSend">Send to controller</button>
+			</div>
+			<div id="digiMsgBox">
+				<div class="digiMsgHeader">Received messages / http</div>
+				<div id="digiLog"></div>
+			</div>
+			<p class="hint">Emitted <code>digiline_send</code> messages appear here. "Send to controller" simulates a receiver on that channel.</p>
+		</fieldset>
+
+		<fieldset>
+			<legend>Console / Output</legend>
+			<pre id="console">—</pre>
+		</fieldset>
+
+		<fieldset>
+			<legend>Internal state</legend>
+			<div id="state">
+				<p>Pending timers: <span id="timersCount">0</span></p>
+				<p>Heat: <span id="heatVal">0</span> / <span id="heatMax">20</span></p>
+			</div>
+			<div class="memTabs"><button class="memTab active" data-tab="mem">mem</button></div>
+			<pre id="memView">{}</pre>
+		</fieldset>
+
+		<fieldset>
+			<legend>Simulation</legend>
+			<div class="row">
+				<button id="stepTimer">⏱ Advance timers +0.5 s</button>
+			</div>
+			<div class="row">
+				<label class="inline">
+					<input type="checkbox" id="autoTimer"> Auto-advance 0.5 s / 1 s
+				</label>
+			</div>
+			<div class="row">
+				<button id="resetBtn" class="danger">↺ Reset simulation</button>
+			</div>
+		</fieldset>
+	</aside>
+</main>
+
+<!-- API documentation modal -->
+<div id="docsModal" class="modal hidden">
+	<div class="modal-backdrop" id="docsBackdrop"></div>
+	<div class="modal-box">
+		<div class="modal-header">
+			<h2>Luacontroller API Reference</h2>
+			<input id="docsSearch" type="text" placeholder="Search…" autocomplete="off">
+			<button id="docsClose" title="Close">✕</button>
+		</div>
+		<div class="modal-body" id="docsBody"></div>
+	</div>
+</div>
+
+<!-- Editor: CodeMirror 5 -->
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/lua/lua.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/hint/show-hint.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/edit/matchbrackets.js"></script>
+<script src="ide.js"></script>
+</body>
+</html>
